@@ -1,107 +1,242 @@
-const express = require('express');
-const axios = require('axios');
-const path = require('path');
+import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
+const PORT = process.env.PORT || 3000;
+
+const SALESDRIVE_URL = process.env.SALESDRIVE_URL;
+const SALESDRIVE_API_KEY = process.env.SALESDRIVE_API_KEY;
+
+const DILOVOD_API_URL = process.env.DILOVOD_API_URL || 'https://api.dilovod.ua';
+const DILOVOD_API_KEY = process.env.DILOVOD_API_KEY;
+const DILOVOD_VERSION = '0.25';
+
+// Telegram Bot Config
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
 app.use(express.json());
-// Вказуємо Express віддавати статичні файли з папки public
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Конфігураційні дані (замініть на власні ключі тестових акаунтів)
-const CONFIG = {
-    SALESDRIVE: {
-        API_KEY: 'YOUR_SALESDRIVE_API_KEY',
-        DOMAIN: 'https://YOUR_DOMAIN.salesdrive.me'
-    },
-    DILOVOD: {
-        API_KEY: 'YOUR_DILOVOD_API_KEY'
-    },
-    TELEGRAM: {
-        BOT_TOKEN: 'YOUR_TELEGRAM_BOT_TOKEN',
-        CHAT_ID: 'YOUR_TELEGRAM_CHAT_ID'
-    }
-};
-
 /**
- * Функція сповіщення в Telegram при збоях API
+ * Функція відправки сповіщення в Telegram про помилки API
  */
-async function sendTelegramAlert(systemName, errorDetails) {
-    const message = `⚠️ **УВАГА: Збій API System!**\n\nСистема: **${systemName}**\nПомилка: ${errorDetails}`;
-    try {
-        await axios.post(`https://api.telegram.org/bot${CONFIG.TELEGRAM.BOT_TOKEN}/sendMessage`, {
-            chat_id: CONFIG.TELEGRAM.CHAT_ID,
-            text: message,
-            parse_mode: 'Markdown'
-        });
-    } catch (err) {
-        console.error('Не вдалося надіслати сповіщення в Telegram:', err.message);
+async function sendTelegramAlert(serviceName, errorMessage, leadInfo = {}) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+    console.warn('Telegram Bot token або Chat ID не налаштовані в .env');
+    return;
+  }
+
+  const timestamp = new Date().toLocaleString('uk-UA', { timeZone: 'Europe/Kyiv' });
+
+  const message = `
+⚠️ <b>Збій інтеграції: ${serviceName}</b>
+
+<b>Час:</b> ${timestamp}
+<b>Помилка:</b> <code>${errorMessage}</code>
+<b>Дані ліда:</b>
+• <b>Ім'я:</b> ${leadInfo.name || 'Н/Д'}
+• <b>Телефон:</b> ${leadInfo.phone || 'Н/Д'}
+  `.trim();
+
+  try {
+    const tgUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+    const response = await fetch(tgUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: TELEGRAM_CHAT_ID,
+        text: message,
+        parse_mode: 'HTML'
+      })
+    });
+
+    if (!response.ok) {
+      const resText = await response.text();
+      console.error(`Помилка надсилання сповіщення в Telegram: ${response.status} - ${resText}`);
     }
+  } catch (err) {
+    console.error('Не вдалося відправити сповіщення в Telegram:', err.message);
+  }
 }
 
-/**
- * Endpoint прийому форми
- */
-app.post('/api/leads', async (req, res) => {
-    const { fName, phone } = req.body;
+async function callDilovod(action, params) {
+  const packet = {
+    version: DILOVOD_VERSION,
+    key: DILOVOD_API_KEY,
+    action,
+    params
+  };
 
-    // --- КРОК 1: Відправка заявки в SalesDrive ---
-    let salesDriveResult;
-    try {
-        const sdResponse = await axios.post(`${CONFIG.SALESDRIVE.DOMAIN}/api-req/in/v1/`, {
-            form: CONFIG.SALESDRIVE.API_KEY,
-            fName: fName,
-            phone: phone,
-            products: []
-        }, { timeout: 7000 }); // таймаут 7 секунд
+  const body = new URLSearchParams();
+  body.append('packet', JSON.stringify(packet));
 
-        salesDriveResult = sdResponse.data;
-    } catch (err) {
-        // Логуємо та сповіщаємо про падаюче API
-        const errorMsg = err.response ? `Status ${err.response.status}` : err.message;
-        await sendTelegramAlert('SalesDrive API', errorMsg);
-        return res.status(502).json({ error: 'SalesDrive API unavailable' });
+  const response = await fetch(DILOVOD_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString()
+  });
+
+  return response.json();
+}
+
+app.post('/api/lead', async (req, res) => {
+  try {
+    const { name, phone, website } = req.body;
+
+    if (website) {
+      console.warn('Виявлено спам-бота (заповнено honeypot)');
+      return res.status(400).json({ success: false, message: 'Spam detected' });
     }
 
-    // --- КРОК 2: Передача даних у Діловод (Категорія "Клієнт") ---
-    try {
-        // Структура запиту до API Діловод
-        const dilovodPayload = {
-            version: "1.0",
-            action: "save",
-            params: {
-                header: {
-                    specifiedNum: "", 
-                    remark: "Заявка з сайту / SalesDrive"
-                },
-                details: {
-                    person: {
-                        name: fName,
-                        phone: phone,
-                        roleCustomer: 1 // Прапор категорія "Клієнт" у Діловод
-                    }
-                }
-            }
-        };
+    if (!name || !phone) {
+      return res.status(400).json({ success: false, message: 'Ім’я та телефон обов’язкові' });
+    }
 
-        await axios.post('https://api.dilovod.ua/v1/', dilovodPayload, {
-            headers: {
-                'Authorization': `Bearer ${CONFIG.DILOVOD.API_KEY}`,
-                'Content-Type': 'application/json'
+    const nameRegex = /^[a-zA-Zа-яА-ЯіІїЇєЄґҐ\s]+$/;
+    if (!nameRegex.test(name.trim())) {
+      return res.status(400).json({ success: false, message: 'Ім’я повинно містити лише літери' });
+    }
+
+    const cleanPhone = phone.replace(/\D/g, '');
+    const phoneRegex = /^(380|0)\d{9}$/;
+    if (!phoneRegex.test(cleanPhone)) {
+      return res.status(400).json({ success: false, message: 'Некоректний номер телефону' });
+    }
+
+    const leadInfo = { name: name.trim(), phone: cleanPhone };
+
+    let salesDriveResult = null;
+    let dilovodResult = null;
+
+    // --- SALESDRIVE INTEGRATION ---
+    try {
+      const salesDrivePayload = {
+        getResultData: "1",
+        fName: name.trim(),
+        phone: cleanPhone,
+        products: [],
+        comment: "",
+        externalId: "",
+        lName: "",
+        mName: "",
+        email: "",
+        con_comment: "",
+        shipping_method: "",
+        payment_method: "",
+        shipping_address: "",
+        sajt: req.headers.referer || ""
+      };
+
+      const sdResponse = await fetch(SALESDRIVE_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Api-Key': SALESDRIVE_API_KEY
+        },
+        body: JSON.stringify(salesDrivePayload)
+      });
+
+      if (!sdResponse.ok) {
+        throw new Error(`SalesDrive HTTP Status ${sdResponse.status}`);
+      }
+
+      const sdText = await sdResponse.text();
+      try {
+        salesDriveResult = JSON.parse(sdText);
+      } catch {
+        salesDriveResult = { raw: sdText };
+      }
+
+    } catch (error) {
+      console.error('Помилка при відправці в SalesDrive:', error.message);
+      await sendTelegramAlert('SalesDrive', error.message, leadInfo);
+    }
+
+    // --- DILOVOD INTEGRATION ---
+    try {
+      const contactData = await callDilovod('saveObject', {
+        header: {
+          id: 'catalogs.persons',
+          name: { uk: name.trim(), ru: name.trim() },
+          details: JSON.stringify({
+            phones: [{ pr: cleanPhone, kind: 'phone' }],
+            emails: [],
+            messengers: [],
+            urls: [],
+            attributes: [],
+            notes: []
+          })
+        }
+      });
+
+      console.log('Dilovod contact response:', JSON.stringify(contactData));
+
+      if (contactData.error) {
+        throw new Error(`Діловод (Contact) error: ${contactData.error}`);
+      }
+
+      const contactId = contactData.id;
+
+      if (contactId) {
+        dilovodResult = await callDilovod('call', {
+          method: 'saleOrderCreate',
+          arguments: {
+            header: {
+              person: contactId,
+              remarkFromPerson: 'Заявка з веб-форми (Express)'
             },
-            timeout: 7000
+            goods: []
+          }
         });
 
-    } catch (err) {
-        const errorMsg = err.response ? `Status ${err.response.status}` : err.message;
-        await sendTelegramAlert('Діловод API', errorMsg);
-        // Повертаємо 200/207, оскільки заявка в SalesDrive вже створилась
-        return res.status(207).json({ status: 'Saved to SalesDrive, failed to sync with Dilovod' });
+        if (dilovodResult.error) {
+          throw new Error(`Діловод (Order) error: ${dilovodResult.error}`);
+        }
+      }
+
+    } catch (error) {
+      console.error('Помилка при відправці в Діловод:', error.message);
+      await sendTelegramAlert('Діловод', error.message, leadInfo);
     }
 
-    return res.json({ status: 'success', message: 'Lead saved to SalesDrive and Dilovod' });
+    // --- RESPONSE HANDLING ---
+    if (salesDriveResult || dilovodResult) {
+      return res.status(200).json({
+        success: true,
+        message: 'Заявку успішно оброблено',
+        data: {
+          salesDrive: salesDriveResult,
+          dilovod: dilovodResult
+        }
+      });
+    } else {
+      return res.status(500).json({
+        success: false,
+        message: 'Не вдалося зберегти заявку в CRM системах'
+      });
+    }
+
+  } catch (error) {
+    console.error('Критична помилка сервера:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Виникла внутрішня помилка сервера.'
+    });
+  }
 });
 
-const PORT = process.env.PORT || 3000;
+app.get('/{*splat}', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  console.log(`Сервер успішно запущено на порту ${PORT}`);
 });

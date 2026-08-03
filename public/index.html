@@ -1,115 +1,62 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="uk">
-<head>
-    <meta charset="UTF-8">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Форма заявки</title>
-    <!-- Подключение маски для телефона -->
-    <script src="https://unpkg.com/imask"></script>
-    <style>
-        .error { color: red; font-size: 12px; display: none; }
-        .hp-field { display: none !important; } /* Сховане поле для спам-ботів */
-        .form-group { margin-bottom: 15px; }
-    </style>
-</head>
-<body>
+    <!-- Підключення Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
-<form id="leadForm">
-    <!-- Honeypot антиспам поле -->
-    <div class="hp-field">
-        <input type="text" id="website_hp" name="website_hp" autocomplete="off">
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div class="form-card">
+      <div class="form-header">
+        <h2>Оформлення заявки</h2>
+        <p>Заповніть форму, і ми зв'яжемося з вами найближчим часом</p>
+      </div>
+
+      <form id="leadForm" novalidate>
+        <div class="hp-field">
+          <input type="text" id="website_hp" name="website" style="display: none" tabindex="-1" autocomplete="off" />
+        </div>
+
+        <div class="form-group">
+          <label for="userName">Ім’я</label>
+          <div class="input-wrapper">
+            <input type="text" id="userName" class="form-control" placeholder="Введіть ваше ім’я" required />
+          </div>
+          <div id="nameError" class="error">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            Ім’я повинно містити лише літери.
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="userPhone">Телефон</label>
+          <div class="input-wrapper">
+            <input type="text" id="userPhone" class="form-control" placeholder="+380 (XX) XXX-XX-XX" required />
+          </div>
+          <div id="phoneError" class="error">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            Введіть коректний номер телефону.
+          </div>
+        </div>
+
+        <button type="submit" class="btn-submit">Надіслати заявку</button>
+      </form>
     </div>
 
-    <div class="form-group">
-        <label for="userName">Ім’я:</label><br>
-        <input type="text" id="userName" required>
-        <div id="nameError" class="error">Ім’я повинно містити лише літери (українські або латинські).</div>
-    </div>
-
-    <div class="form-group">
-        <label for="userPhone">Телефон:</label><br>
-        <input type="text" id="userPhone" placeholder="+380 (XX) XXX-XX-XX" required>
-        <div id="phoneError" class="error">Введіть коректний номер телефону.</div>
-    </div>
-
-    <button type="submit">Надіслати</button>
-</form>
-
-<script>
-    // 1. Налаштування маски для українських операторів
-    const phoneInput = document.getElementById('userPhone');
-    const maskOptions = {
-        mask: '+3{80} (00) 000-00-00',
-        lazy: false
-    };
-    const mask = IMask(phoneInput, maskOptions);
-
-    // Фіксація часу завантаження сторінки (Anti-Spam)
-    const pageLoadTime = Date.now();
-
-    // 2. Валідація та відправка
-    const form = document.getElementById('leadForm');
-    const nameInput = document.getElementById('userName');
-
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        
-        let isValid = true;
-        const nameRegex = /^[a-zA-Zа-яА-ЯіІїЇєЄґҐ\s]+$/;
-
-        // Перевірка імені
-        if (!nameRegex.test(nameInput.value.trim())) {
-            document.getElementById('nameError').style.display = 'block';
-            isValid = false;
-        } else {
-            document.getElementById('nameError').style.display = 'none';
-        }
-
-        // Перевірка завершеності маски телефону
-        if (!mask.isComplete) {
-            document.getElementById('phoneError').style.display = 'block';
-            isValid = false;
-        } else {
-            document.getElementById('phoneError').style.display = 'none';
-        }
-
-        // --- Антиспам перевірки ---
-        const honeypot = document.getElementById('website_hp').value;
-        const submitTime = Date.now();
-        const timeDiff = (submitTime - pageLoadTime) / 1000; // в секундах
-
-        // Якщо заповнено honeypot або форму надіслано швидше ніж за 2 секунди
-        if (honeypot !== '' || timeDiff < 2) {
-            console.warn('Spam detected');
-            alert('Дякуємо! Ваша заявка прийнята.'); // Удаваний успіх для бота
-            return;
-        }
-
-        if (!isValid) return;
-
-        // Передача даних на свій сервер
-        const payload = {
-            fName: nameInput.value.trim(),
-            phone: mask.unmaskedValue // Отримуємо чистий номер без символів маски: 380XXXXXXXXX
-        };
-
-        try {
-            const response = await fetch('/api/leads', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (response.ok) {
-                alert('Заявку успішно відправлено!');
-                form.reset();
-                mask.value = '';
-            } else {
-                alert('Помилка відправки. Спробуйте пізніше.');
-            }
-        } catch (err) {
-            console.error(err);
-        }
-    });
-</script>
-</body>
+    <script src="/js/main.js"></script>
+  </body>
 </html>

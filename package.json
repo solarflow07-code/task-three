@@ -12,6 +12,17 @@
   "license": "ISC",
   "dependencies": {
     "axios": "^1.18.1",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
     "express": "^5.2.1"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/solarflow07-code/my-crm-integration.git"
+  },
+  "bugs": {
+    "url": "https://github.com/solarflow07-code/my-crm-integration/issues"
+  },
+  "homepage": "https://github.com/solarflow07-code/my-crm-integration#readme"
 }

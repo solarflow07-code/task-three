@@ -1,0 +1,55 @@
+# Task 3
+Express-сервер з інтеграціями SalesDrive, Dilovod та Telegram-бота.
+
+## Стек
+Node.js, Express 5, axios, cors, dotenv, cookie-parser.
+
+## Розгортання
+
+```bash
+git clone https://github.com/solarflow07-code/my-crm-integration.git
+cd my-crm-integration
+npm install
+```
+
+Створи `.env` у корені проєкту:
+
+```
+PORT=3000
+
+SALESDRIVE_URL=https://<your-subdomain>.salesdrive.me/handler/
+SALESDRIVE_API_KEY=your_salesdrive_key
+
+DILOVOD_API_URL=https://api.dilovod.ua
+DILOVOD_API_KEY=your_dilovod_key
+
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
+```
+
+⚠️ Не комітити `.env` — додай його в `.gitignore`. Якщо ключі вже потрапили кудись публічно, обов'язково перевипусти їх.
+
+Запуск:
+
+```bash
+npm start
+```
+
+Сервер підніметься на `http://localhost:3000` (порт з `PORT`).
+
+## Продакшн (VPS)
+- Проксі через nginx на потрібний домен.
+- Запуск під `pm2` або `systemd`, щоб сервіс автоматично рестартував.
+- SSL через Let's Encrypt / certbot.
+
+## Структура
+```
+server.js        — точка входу, Express-сервер
+public/          — фронтенд (index.html, main.js, style.css)
+.env             — секрети (не в git)
+```
+
+```
+SALESDRIVE
+
+Login - 
